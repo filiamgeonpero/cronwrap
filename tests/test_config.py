@@ -53,6 +53,13 @@ class TestLoadConfig:
         with pytest.raises(FileNotFoundError):
             load_config("/nonexistent/path/job.json")
 
+    def test_raises_for_invalid_json(self, tmp_path):
+        """Ensure a clear error is raised when the config file contains invalid JSON."""
+        path = tmp_path / "bad.json"
+        path.write_text("{not valid json")
+        with pytest.raises(json.JSONDecodeError):
+            load_config(str(path))
+
     def test_default_alert_config_when_absent(self, tmp_path):
         data = {"command": "ls"}
         path = tmp_path / "minimal.json"
@@ -85,4 +92,4 @@ class TestConfigFromEnv:
         assert cfg.timeout == 120
         assert cfg.retries == 3
         assert cfg.alert_on_failure is True
-        assert len(cfg.alert_config.recipients) == 2
+        assert len(cfg.alert_config.rec
