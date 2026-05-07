@@ -1,57 +1,75 @@
-"""High-level scheduler that checks which configured jobs are due and runs them."""
+"""High-level schedule loop with optional per-job throttling."""
 
 from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
-from typing import Iterable
+from typing import Any, Dict, List
 
-from cronwrap.config import JobConfig
-from cronwrap.runner import run_job
 from cronwrap.scheduler import is_due
+from cronwrap.throttle import ThrottleConfig, is_throttled
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
-def tick(jobs: Iterable[JobConfig], now: datetime | None = None) -> list[str]:
-    """Check each job and run those whose cron expression is currently due.
+def tick(
+    jobs: List[Dict[str, Any]],
+    now: time.struct_time,
+    history=None,
+) -> List[str]:
+    """Evaluate all jobs against *now* and return names of triggered jobs.
 
-    Returns a list of job names that were triggered.
+    A job dict may contain:
+      - ``name`` (str, required)
+      - ``schedule`` (str, optional cron expression)
+      - ``throttle`` (ThrottleConfig, optional)
+      - ``run`` (callable, optional — called when the job is triggered)
+
+    Args:
+        jobs: List of job configuration dicts.
+        now: The current time as a struct_time.
+        history: A JobHistory instance used for throttle checks (optional).
+
+    Returns:
+        Names of jobs that were triggered in this tick.
     """
-    triggered: list[str] = []
-    now = now or datetime.now()
+    triggered: List[str] = []
+
     for job in jobs:
-        expression: str | None = getattr(job, "schedule", None)
-        if not expression:
-            log.debug("Job %r has no schedule, skipping.", job.name)
+        name: str = job.get("name", "<unnamed>")
+        schedule: str | None = job.get("schedule")
+
+        if not schedule:
+            logger.debug("Job %s has no schedule — skipping.", name)
             continue
-        try:
-            due = is_due(expression, now=now)
-        except ValueError as exc:
-            log.error("Invalid cron expression for job %r: %s", job.name, exc)
+
+        if not is_due(schedule, now):
             continue
-        if due:
-            log.info("Job %r is due — launching.", job.name)
+
+        throttle: ThrottleConfig | None = job.get("throttle")
+        if throttle and history and is_throttled(name, throttle, history):
+            logger.info("Job %s is throttled — skipping this tick.", name)
+            continue
+
+        triggered.append(name)
+        runner = job.get("run")
+        if callable(runner):
             try:
-                run_job(job)
-            except Exception as exc:  # noqa: BLE001
-                log.error("Job %r raised an unexpected error: %s", job.name, exc)
-            triggered.append(job.name)
-        else:
-            log.debug("Job %r is not due at %s.", job.name, now.strftime("%H:%M"))
+                runner()
+            except Exception:
+                logger.exception("Job %s raised an exception during tick.", name)
+
     return triggered
 
 
-def run_loop(jobs: Iterable[JobConfig], interval: int = 60) -> None:  # pragma: no cover
-    """Block forever, calling *tick* once per *interval* seconds.
-
-    Aligns wakeups to the top of each minute so jobs fire on schedule.
-    """
-    jobs = list(jobs)
-    log.info("Schedule runner started with %d job(s).", len(jobs))
+def run_loop(
+    jobs: List[Dict[str, Any]],
+    interval: float = 60.0,
+    history=None,
+) -> None:  # pragma: no cover
+    """Block forever, calling :func:`tick` every *interval* seconds."""
+    logger.info("Starting schedule loop (interval=%.1fs, jobs=%d).", interval, len(jobs))
     while True:
-        tick(jobs)
-        now = time.time()
-        sleep_for = interval - (now % interval)
-        time.sleep(sleep_for)
+        now = time.localtime()
+        tick(jobs, now, history=history)
+        time.sleep(interval)
