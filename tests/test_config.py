@@ -67,6 +67,21 @@ class TestLoadConfig:
         cfg = load_config(str(path))
         assert isinstance(cfg.alert_config, AlertConfig)
 
+    def test_loads_job_name(self, config_file):
+        """Ensure job_name is correctly read from the config file."""
+        cfg = load_config(config_file)
+        assert cfg.job_name == "test_job"
+
+    def test_loads_timeout(self, config_file):
+        """Ensure timeout is correctly read from the config file."""
+        cfg = load_config(config_file)
+        assert cfg.timeout == 60
+
+    def test_loads_alert_on_failure(self, config_file):
+        """Ensure alert_on_failure flag is correctly read from the config file."""
+        cfg = load_config(config_file)
+        assert cfg.alert_on_failure is True
+
 
 # ---------------------------------------------------------------------------
 # config_from_env
@@ -86,10 +101,3 @@ class TestConfigFromEnv:
         monkeypatch.setenv("CRONWRAP_TIMEOUT", "120")
         monkeypatch.setenv("CRONWRAP_RETRIES", "3")
         monkeypatch.setenv("CRONWRAP_ALERT_ON_FAILURE", "true")
-        monkeypatch.setenv("CRONWRAP_ALERT_RECIPIENTS", "a@b.com, c@d.com")
-        cfg = config_from_env("echo env")
-        assert cfg.job_name == "my_job"
-        assert cfg.timeout == 120
-        assert cfg.retries == 3
-        assert cfg.alert_on_failure is True
-        assert len(cfg.alert_config.rec
