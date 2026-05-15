@@ -29,6 +29,7 @@ def run_job(config: JobConfig) -> int:
     attempt = 0
     max_attempts = config.retries + 1
     last_exit_code = -1
+    last_stderr = ""
 
     while attempt < max_attempts:
         attempt += 1
@@ -48,6 +49,7 @@ def run_job(config: JobConfig) -> int:
             break
 
         last_exit_code = exit_code
+        last_stderr = stderr
         if exit_code == 0:
             log.info("[%s] Completed successfully.", config.job_name)
             return 0
@@ -58,11 +60,11 @@ def run_job(config: JobConfig) -> int:
         )
 
         if attempt < max_attempts:
-            log.info("[%s] Retrying in %ds…", config.job_name, config.retry_delay)
+            log.info("[%s] Retrying in %ds\u2026", config.job_name, config.retry_delay)
             time.sleep(config.retry_delay)
 
     if last_exit_code != 0 and config.alert_on_failure:
-        _send_failure_alert(config, last_exit_code, "")
+        _send_failure_alert(config, last_exit_code, last_stderr)
 
     return last_exit_code
 
